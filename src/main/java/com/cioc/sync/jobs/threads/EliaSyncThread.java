@@ -1,5 +1,7 @@
 package com.cioc.sync.jobs.threads;
 
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
 import java.util.List;
 
 import org.jsoup.Jsoup;
@@ -27,7 +29,7 @@ public class EliaSyncThread extends Thread {
 
     String apiPageUrl = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
 
-    String apiDataUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/#METHOD#/records?order_by=datetime%20asc&limit=100&timezone=UTC";
+    String apiDataUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/#METHOD#/records?order_by=datetime asc&limit=100&timezone=UTC&";
 
     public EliaSyncThread(SyncEliaMarketingTask syncEliaMarketingTask) {
         this.syncEliaMarketingTask = syncEliaMarketingTask;
@@ -49,9 +51,9 @@ public class EliaSyncThread extends Thread {
         String where = "";
         if (lastData != null) {
             // 根据最后一次数据的日期查询
-            where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
-                    + lastData.getString(syncEliaMarketingTask.getIndexField()) + "'";
-            where = URLEncodeUtil.encode(where);
+            where = "where=" + syncEliaMarketingTask.getIndexField() + ">'"
+                    + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
+            // where = URLEncoder.encode(where, Charset.forName("utf-8"));
         }
         String requestURI = apiDataUrl + where;
         logger.debug(requestURI);
@@ -81,14 +83,15 @@ public class EliaSyncThread extends Thread {
             lastData = array.getObject(array.size() - 1, JSONObject.class);
             where = "";
             where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
-                    + lastData.getString(syncEliaMarketingTask.getIndexField()) + "'";
+                    + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
             where = URLEncodeUtil.encode(where);
             String url = apiDataUrl + where;
+            logger.debug("request url in while loop " + url);
             object = JSONObject.parseObject(HttpUtil.get(url));
             totalCount = object.getInteger("total_count");
         }
 
-        logger.info("complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
+        logger.info("Complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
                 + totalCountSaveToDb + " error " + totalError);
         logger.info("End task thread > " + syncEliaMarketingTask);
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());

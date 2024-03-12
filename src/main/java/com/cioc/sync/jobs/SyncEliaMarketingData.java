@@ -31,6 +31,7 @@ public class SyncEliaMarketingData {
             logger.debug("Find task > " + syncEliaMarketingTask);
             if (RUNNING_TASK.contains(syncEliaMarketingTask.getId())) {
                 // 不重复执行
+                logger.debug("task is running " + syncEliaMarketingTask);
                 continue;
             }
             if (syncEliaMarketingTask.getSource().equals("elia")) {

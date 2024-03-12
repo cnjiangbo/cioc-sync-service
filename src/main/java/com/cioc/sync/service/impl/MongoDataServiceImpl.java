@@ -109,7 +109,7 @@ public class MongoDataServiceImpl implements MongoDataService {
             result = mongoTemplate.getCollection(collectionName)
                     .insertMany(documents, options);
         } catch (Exception e) {
-            e.printStackTrace();
+            // e.printStackTrace();
         }
 
         return result == null ? 0 : result.getInsertedIds().size();
