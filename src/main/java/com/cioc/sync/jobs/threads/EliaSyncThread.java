@@ -91,6 +91,8 @@ public class EliaSyncThread extends Thread {
             logger.debug("request url in while loop " + url);
             object = JSONObject.parseObject(HttpUtil.get(url));
             totalCount = object.getInteger("total_count");
+            logger.info("The number of APIs with ID " + syncEliaMarketingTask.getApiId()
+                    + " waiting for synchronized data is " + totalCount);
         }
 
         logger.info("Complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
