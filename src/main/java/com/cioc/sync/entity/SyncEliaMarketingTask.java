@@ -22,5 +22,6 @@ public class SyncEliaMarketingTask {
     private String sortMethod;
     // elia yuso
     private String source;
+    private boolean enable;
 
 }
