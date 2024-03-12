@@ -2,15 +2,20 @@ package com.cioc.sync.service.impl;
 
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.cioc.sync.entity.SyncEliaMarketingTask;
+import com.cioc.sync.marketing.tso.elia.service.impl.DataServiceImpl;
 import com.cioc.sync.repository.SyncEliaMarketingTaskRepository;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 
 @Service
 public class SyncEliaMarketingTaskServiceImpl implements SyncEliaMarketingTaskService {
+
+    private static final Logger logger = LoggerFactory.getLogger(DataServiceImpl.class);
 
     @Autowired
     SyncEliaMarketingTaskRepository syncEliaMarketingTaskRepository;
@@ -26,6 +31,7 @@ public class SyncEliaMarketingTaskServiceImpl implements SyncEliaMarketingTaskSe
 
     @SuppressWarnings("null")
     public SyncEliaMarketingTask createOrUpdateTask(SyncEliaMarketingTask task) {
+        logger.info("createOrUpdateTask: > " + task);
         return syncEliaMarketingTaskRepository.save(task);
     }
 

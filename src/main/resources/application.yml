@@ -8,9 +8,10 @@ spring:
       database: elia
       username: cioc-elia
       password: aBcD1234eF5678gH
-  servlet:
-    context-path: /api/
+
 
 logging:
   level:
     root: INFO
+    com:
+      cioc: DEBUG
