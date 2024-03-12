@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: cioc-sync-service1
+  data:
+    mongodb:
+      host: 10.0.2.10
+      port: 27017
+      database: elia
+      username: cioc-elia
+      password: aBcD1234eF5678gH
+  servlet:
+    context-path: /api/
+
+logging:
+  level:
+    root: INFO
