@@ -20,5 +20,7 @@ public class SyncEliaMarketingTask {
     private long lastSyncedDataCount;
     private int syncCount;
     private String sortMethod;
+    // elia yuso
+    private String source;
 
 }

@@ -8,14 +8,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.cioc.sync.entity.SyncEliaMarketingTask;
-import com.cioc.sync.marketing.tso.elia.service.impl.DataServiceImpl;
 import com.cioc.sync.repository.SyncEliaMarketingTaskRepository;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 
 @Service
 public class SyncEliaMarketingTaskServiceImpl implements SyncEliaMarketingTaskService {
 
-    private static final Logger logger = LoggerFactory.getLogger(DataServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(MongoDataServiceImpl.class);
 
     @Autowired
     SyncEliaMarketingTaskRepository syncEliaMarketingTaskRepository;

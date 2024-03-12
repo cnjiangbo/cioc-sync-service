@@ -1,4 +1,4 @@
-package com.cioc.sync.marketing.tso.elia.service.impl;
+package com.cioc.sync.service.impl;
 
 import java.util.Date;
 
@@ -14,23 +14,19 @@ import org.springframework.stereotype.Service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.cioc.sync.marketing.tso.elia.service.DataService;
+import com.cioc.sync.service.MongoDataService;
 
 import cn.hutool.core.util.StrUtil;
 
 @Service
-public class DataServiceImpl implements DataService {
+public class MongoDataServiceImpl implements MongoDataService {
 
     @Autowired
     private MongoTemplate mongoTemplate;
-    private static final Logger logger = LoggerFactory.getLogger(DataServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(MongoDataServiceImpl.class);
 
     @Override
     public void saveData(JSON json) {
-        logger.info("test");
-        JSONObject object = new JSONObject();
-        object.put("test", new Date());
-        mongoTemplate.save(object, "test-bob");
 
     }
 
@@ -56,7 +52,7 @@ public class DataServiceImpl implements DataService {
             mongoTemplate.createCollection(collectionName);
             logger.info("Collection '" + collectionName + "' created successfully.");
             // create index field
-            mongoTemplate.indexOps(collectionName).ensureIndex(new Index().on(indexName, Direction.ASC));
+            mongoTemplate.indexOps(collectionName).ensureIndex(new Index().on(indexName, Direction.ASC).unique());
             logger.info("Index '" + indexName + "' created successfully.");
         } else {
             logger.debug("Collection '" + collectionName + "' already exists.");

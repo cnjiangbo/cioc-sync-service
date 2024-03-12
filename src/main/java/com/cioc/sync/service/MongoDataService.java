@@ -1,12 +1,9 @@
-package com.cioc.sync.marketing.tso.elia.service;
-
-import org.springframework.stereotype.Service;
+package com.cioc.sync.service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 
-@Service
-public interface DataService {
+public interface MongoDataService {
     void saveData(JSON json);
 
     boolean connectionExists(String collectionName);
