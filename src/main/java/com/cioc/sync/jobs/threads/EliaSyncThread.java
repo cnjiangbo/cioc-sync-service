@@ -2,6 +2,7 @@ package com.cioc.sync.jobs.threads;
 
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.util.Date;
 import java.util.List;
 
 import org.jsoup.Jsoup;
@@ -16,6 +17,7 @@ import com.alibaba.fastjson.TypeReference;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
 import com.cioc.sync.jobs.SyncEliaMarketingData;
 import com.cioc.sync.service.MongoDataService;
+import com.cioc.sync.service.SyncEliaMarketingTaskService;
 
 import cn.hutool.core.net.URLEncodeUtil;
 import cn.hutool.extra.spring.SpringUtil;
@@ -94,6 +96,13 @@ public class EliaSyncThread extends Thread {
         logger.info("Complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
                 + totalCountSaveToDb + " error " + totalError);
         logger.info("End task thread > " + syncEliaMarketingTask);
+        if (totalCountSaveToDb > 0) {
+            syncEliaMarketingTask.setLastSyncTime(new Date());
+            syncEliaMarketingTask.setLastSyncedDataCount(totalCountSaveToDb);
+            syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
+            syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + totalCountSaveToDb);
+            SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
+        }
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());
     }
 

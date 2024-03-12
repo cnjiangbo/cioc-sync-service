@@ -28,6 +28,9 @@ public class SyncEliaMarketingData {
     public void initSyncTask() {
         List<SyncEliaMarketingTask> syncEliaMarketingTasks = syncEliaMarketingTaskService.getAllTasks();
         for (SyncEliaMarketingTask syncEliaMarketingTask : syncEliaMarketingTasks) {
+            if (!syncEliaMarketingTask.isEnable()) {
+                continue;
+            }
             logger.debug("Find task > " + syncEliaMarketingTask);
             if (RUNNING_TASK.contains(syncEliaMarketingTask.getId())) {
                 // 不重复执行
