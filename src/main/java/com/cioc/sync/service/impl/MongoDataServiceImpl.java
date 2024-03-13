@@ -14,7 +14,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Direction;
 import org.springframework.stereotype.Service;
 
-import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.InsertManyOptions;
 import com.mongodb.client.result.InsertManyResult;
 
@@ -23,8 +22,6 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.cioc.sync.service.MongoDataService;
 import com.mongodb.DBObject;
-import com.mongodb.bulk.BulkWriteResult;
-import com.mongodb.client.model.InsertManyOptions;
 
 import cn.hutool.core.util.StrUtil;
 
@@ -62,7 +59,7 @@ public class MongoDataServiceImpl implements MongoDataService {
             mongoTemplate.createCollection(collectionName);
             logger.info("Collection '" + collectionName + "' created successfully.");
             // create index field
-            mongoTemplate.indexOps(collectionName).ensureIndex(new Index().on(indexName, Direction.ASC).unique());
+            mongoTemplate.indexOps(collectionName).ensureIndex(new Index().on(indexName, Direction.ASC));
             logger.info("Index '" + indexName + "' created successfully.");
         } else {
             logger.debug("Collection '" + collectionName + "' already exists.");
@@ -99,6 +96,7 @@ public class MongoDataServiceImpl implements MongoDataService {
     @SuppressWarnings("null")
     @Override
     public Integer insertDocumentsIgnoreErrors(List<JSONObject> jsonObjects, String collectionName) {
+        // 方法有问题，当出现重复数据的时候，整个list插入失败，临时弃用
         List<Document> documents = jsonObjects.stream()
                 .map(jsonObject -> jsonObject.toJSONString())
                 .map(jsonString -> Document.parse((String) jsonString))
@@ -109,7 +107,7 @@ public class MongoDataServiceImpl implements MongoDataService {
             result = mongoTemplate.getCollection(collectionName)
                     .insertMany(documents, options);
         } catch (Exception e) {
-            // e.printStackTrace();
+            e.printStackTrace();
         }
 
         return result == null ? 0 : result.getInsertedIds().size();

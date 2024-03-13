@@ -15,9 +15,11 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
+import com.cioc.sync.entity.SyncRecord;
 import com.cioc.sync.jobs.SyncEliaMarketingData;
 import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
+import com.cioc.sync.service.SyncRecordService;
 
 import cn.hutool.core.net.URLEncodeUtil;
 import cn.hutool.extra.spring.SpringUtil;
@@ -40,6 +42,7 @@ public class EliaSyncThread extends Thread {
     @Override
     public void run() {
         MongoDataService mongoDataService = SpringUtil.getBean(MongoDataService.class);
+        SyncRecordService syncRecordService = SpringUtil.getBean(SyncRecordService.class);
         logger.info("Start new task >" + syncEliaMarketingTask);
         String formattedNumber = String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId()));
         String result = HttpUtil.get(apiPageUrl.replace("#INDEX#", formattedNumber));
@@ -55,7 +58,6 @@ public class EliaSyncThread extends Thread {
             // 根据最后一次数据的日期查询
             where = "where=" + syncEliaMarketingTask.getIndexField() + ">'"
                     + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
-            // where = URLEncoder.encode(where, Charset.forName("utf-8"));
         }
         String requestURI = apiDataUrl + where;
         logger.debug(requestURI);
@@ -81,6 +83,23 @@ public class EliaSyncThread extends Thread {
                                 + " of Elia ");
                 logger.error("error data is > " + array);
             }
+
+            // 保存同步记录
+            SyncRecord syncRecord = new SyncRecord();
+            syncRecord.setSuccessCount(successCount);
+            syncRecord.setErrorCount(errorCount);
+            syncRecord.setApiId(syncEliaMarketingTask.getApiId());
+            syncRecord.setSyncTime(new Date());
+            syncRecord.setRequestDataCount(totalCount);
+            syncRecordService.createOrUpdateTask(syncRecord);
+
+            // 更新总记录
+            syncEliaMarketingTask.setLastSyncTime(new Date());
+            syncEliaMarketingTask.setLastSyncedDataCount(successCount);
+            syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
+            syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + successCount);
+            SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
+
             // 获取最后一个数据，使用时间作为下一次请求的参数
             lastData = array.getObject(array.size() - 1, JSONObject.class);
             where = "";
@@ -93,19 +112,18 @@ public class EliaSyncThread extends Thread {
             totalCount = object.getInteger("total_count");
             logger.info("The number of APIs with ID " + syncEliaMarketingTask.getApiId()
                     + " waiting for synchronized data is " + totalCount);
+
         }
 
         logger.info("Complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
                 + totalCountSaveToDb + " error " + totalError);
         logger.info("End task thread > " + syncEliaMarketingTask);
-        if (totalCountSaveToDb > 0) {
-            syncEliaMarketingTask.setLastSyncTime(new Date());
-            syncEliaMarketingTask.setLastSyncedDataCount(totalCountSaveToDb);
-            syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
-            syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + totalCountSaveToDb);
-            SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
-        }
+
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());
+    }
+
+    void updateTask(Integer successCount) {
+
     }
 
     private String getCollectionName(String pageTitle) {

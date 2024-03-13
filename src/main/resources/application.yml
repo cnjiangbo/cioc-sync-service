@@ -11,6 +11,8 @@ spring:
 
 
 logging:
+  file:
+    path: ./log
   level:
     root: INFO
     com:
