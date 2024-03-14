@@ -2,6 +2,7 @@ package com.cioc.sync.jobs.threads;
 
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -17,6 +18,7 @@ import com.alibaba.fastjson.TypeReference;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
 import com.cioc.sync.entity.SyncRecord;
 import com.cioc.sync.jobs.SyncEliaMarketingData;
+import com.cioc.sync.marketing.tso.elia.service.EliaTest;
 import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 import com.cioc.sync.service.SyncRecordService;
@@ -148,4 +150,57 @@ public class EliaSyncThread extends Thread {
         return pageTitle;
     }
 
+    private void getAllEliaApi() {
+        String url = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
+        List<String> apis = new ArrayList<>();
+        for (int i = 1; i < 999; i++) {
+            String formattedNumber = String.format("%03d", i);
+            String result = HttpUtil.get(url.replace("#INDEX#", formattedNumber));
+            if (result.indexOf("Page not found") > 0) {
+                continue;
+            } else {
+                Document doc = Jsoup.parse(result);
+                String name = "INDEX " + i + "\t" + doc.title();
+                apis.add(name);
+            }
+        }
+        for (String line : apis) {
+            System.out.println(line);
+        }
+    }
+
+    public static void main(String[] args) {
+        List<Integer> apiIndex = new ArrayList<>();
+        apiIndex.add(1);
+        // apiIndex.add(2);
+        // apiIndex.add(31);
+        // apiIndex.add(32);
+        // apiIndex.add(45);
+        // apiIndex.add(46);
+        // apiIndex.add(47);
+        // apiIndex.add(61);
+        // apiIndex.add(62);
+        // apiIndex.add(63);
+        // apiIndex.add(64);
+        // apiIndex.add(68);
+        // apiIndex.add(69);
+        // apiIndex.add(77);
+        // apiIndex.add(78);
+        // apiIndex.add(79);
+        // apiIndex.add(80);
+        // apiIndex.add(81);
+        // apiIndex.add(82);
+        // apiIndex.add(83);
+        // apiIndex.add(86);
+        // apiIndex.add(87);
+        // apiIndex.add(88);
+        // apiIndex.add(136);
+        // apiIndex.add(139);
+        // apiIndex.add(140);
+        // apiIndex.add(147);
+        for (Integer index : apiIndex) {
+            new EliaTest().syncDataViaApi(index);
+        }
+        System.out.println("总数据量:" + TOTAL);
+    }
 }
