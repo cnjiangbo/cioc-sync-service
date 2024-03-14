@@ -1,7 +1,6 @@
 package com.cioc.sync.jobs.threads;
 
-import java.net.URLEncoder;
-import java.nio.charset.Charset;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -18,7 +17,6 @@ import com.alibaba.fastjson.TypeReference;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
 import com.cioc.sync.entity.SyncRecord;
 import com.cioc.sync.jobs.SyncEliaMarketingData;
-import com.cioc.sync.marketing.tso.elia.service.EliaTest;
 import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 import com.cioc.sync.service.SyncRecordService;
@@ -26,12 +24,16 @@ import com.cioc.sync.service.SyncRecordService;
 import cn.hutool.core.net.URLEncodeUtil;
 import cn.hutool.extra.spring.SpringUtil;
 import cn.hutool.http.HttpUtil;
+import lombok.Data;
 
 public class EliaSyncThread extends Thread {
 
     private static final Logger logger = LoggerFactory.getLogger(EliaSyncThread.class);
 
     private SyncEliaMarketingTask syncEliaMarketingTask;
+
+    private static boolean DAY_LIMIT = false;
+    private static Integer LIMITED_DAY = -1;
 
     String apiPageUrl = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
 
@@ -45,8 +47,22 @@ public class EliaSyncThread extends Thread {
     public void run() {
         try {
 
+            if (DAY_LIMIT) {
+                // 判断是不是新的一天，如果是则置为false
+                LocalDate currentDate = LocalDate.now();
+                int dayOfMonth = currentDate.getDayOfMonth();
+                if (LIMITED_DAY != dayOfMonth) {
+                    DAY_LIMIT = false;
+                    LIMITED_DAY = -1;
+                } else {
+                    logger.debug("Trigger traffic limit");
+                    endThisTask();
+                    return;
+                }
+
+            }
             MongoDataService mongoDataService = SpringUtil.getBean(MongoDataService.class);
-            SyncRecordService syncRecordService = SpringUtil.getBean(SyncRecordService.class);
+
             logger.info("Start new task >" + syncEliaMarketingTask);
             String formattedNumber = String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId()));
             String result = HttpUtil.get(apiPageUrl.replace("#INDEX#", formattedNumber));
@@ -65,22 +81,26 @@ public class EliaSyncThread extends Thread {
                         + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
             }
             String requestURI = apiDataUrl + where;
-            logger.debug(requestURI);
-            JSONObject object = JSONObject.parseObject(HttpUtil.get(requestURI));
-            logger.debug("Get the data with API ID " + syncEliaMarketingTask.getApiId() + " from Elia " + object);
+            EliaResponse eliaResponse = requestAPI(requestURI);
             // 一直更新最后时间，并且每次获取100个数据，直到total_count为0
-            Integer totalCount = 0;
-            try {
-                totalCount = object.getInteger("total_count");
-            } catch (Exception e) {
-                // 请求API出现错误
-                e.printStackTrace();
-                logger.error("request elia API  with ID " + syncEliaMarketingTask.getApiId() + " error", e);
+            if (!eliaResponse.isSuccess()) {
+                // 请求API出错了
+                endThisTask();
+                // 如果是出发流量限制，那么加入内存 避免当日下次请求
+                if ("10005".equals(eliaResponse.getErrorCode())) {
+                    DAY_LIMIT = true;
+                    LocalDate currentDate = LocalDate.now();
+                    int dayOfMonth = currentDate.getDayOfMonth();
+                    LIMITED_DAY = dayOfMonth;
+                }
+                return;
             }
+            Integer totalCount = eliaResponse.getDataCount();
+
             Integer totalCountSaveToDb = 0;
             Integer totalError = 0;
             while (totalCount > 0) {
-                JSONArray array = object.getJSONArray("results");
+                JSONArray array = eliaResponse.getData();
                 List<JSONObject> jsonObjectList = JSON.parseObject(array.toJSONString(),
                         new TypeReference<List<JSONObject>>() {
                         });
@@ -96,22 +116,7 @@ public class EliaSyncThread extends Thread {
                     logger.error("error data is > " + array);
                 }
 
-                // 保存同步记录
-                SyncRecord syncRecord = new SyncRecord();
-                syncRecord.setSuccessCount(successCount);
-                syncRecord.setErrorCount(errorCount);
-                syncRecord.setApiId(syncEliaMarketingTask.getApiId());
-                syncRecord.setSyncTime(new Date());
-                syncRecord.setRequestDataCount(totalCount);
-                syncRecordService.createOrUpdateTask(syncRecord);
-
-                // 更新总记录
-                syncEliaMarketingTask.setLastSyncTime(new Date());
-                syncEliaMarketingTask.setLastSyncedDataCount(successCount);
-                syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
-                syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + successCount);
-                syncEliaMarketingTask.setCollectionName(collectionName);
-                SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
+                saveSyncRecord(successCount, errorCount, totalCount, collectionName);
 
                 // 获取最后一个数据，使用时间作为下一次请求的参数
                 lastData = array.getObject(array.size() - 1, JSONObject.class);
@@ -121,8 +126,12 @@ public class EliaSyncThread extends Thread {
                 where = URLEncodeUtil.encode(where);
                 String url = apiDataUrl + where;
                 logger.debug("request url in while loop " + url);
-                object = JSONObject.parseObject(HttpUtil.get(url));
-                totalCount = object.getInteger("total_count");
+
+                eliaResponse = requestAPI(requestURI);
+                if (!eliaResponse.isSuccess()) {
+                    break;
+                }
+                totalCount = eliaResponse.getDataCount();
                 logger.info("The number of APIs with ID " + syncEliaMarketingTask.getApiId()
                         + " waiting for synchronized data is " + totalCount);
 
@@ -132,13 +141,33 @@ public class EliaSyncThread extends Thread {
                     + totalCountSaveToDb + " error " + totalError);
             logger.info("End task thread > " + syncEliaMarketingTask);
         } catch (Exception e) {
-            logger.error("there are something wrong with elia API " + syncEliaMarketingTask.getApiId(), e);
+            logger.error("there are something wrong with elia API " + syncEliaMarketingTask.getApiId(), e.toString());
         }
+        endThisTask();
+    }
+
+    void endThisTask() {
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());
     }
 
-    void updateTask(Integer successCount) {
+    void saveSyncRecord(Integer successCount, Integer errorCount, Integer totalCount, String collectionName) {
+        SyncRecordService syncRecordService = SpringUtil.getBean(SyncRecordService.class);
+        // 保存同步记录
+        SyncRecord syncRecord = new SyncRecord();
+        syncRecord.setSuccessCount(successCount);
+        syncRecord.setErrorCount(errorCount);
+        syncRecord.setApiId(syncEliaMarketingTask.getApiId());
+        syncRecord.setSyncTime(new Date());
+        syncRecord.setRequestDataCount(totalCount);
+        syncRecordService.createOrUpdateTask(syncRecord);
 
+        // 更新总记录
+        syncEliaMarketingTask.setLastSyncTime(new Date());
+        syncEliaMarketingTask.setLastSyncedDataCount(successCount);
+        syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
+        syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + successCount);
+        syncEliaMarketingTask.setCollectionName(collectionName);
+        SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
     }
 
     private String getCollectionName(String pageTitle) {
@@ -150,7 +179,7 @@ public class EliaSyncThread extends Thread {
         return pageTitle;
     }
 
-    private void getAllEliaApi() {
+    public void getAllEliaApi(Integer index) {
         String url = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
         List<String> apis = new ArrayList<>();
         for (int i = 1; i < 999; i++) {
@@ -169,38 +198,35 @@ public class EliaSyncThread extends Thread {
         }
     }
 
-    public static void main(String[] args) {
-        List<Integer> apiIndex = new ArrayList<>();
-        apiIndex.add(1);
-        // apiIndex.add(2);
-        // apiIndex.add(31);
-        // apiIndex.add(32);
-        // apiIndex.add(45);
-        // apiIndex.add(46);
-        // apiIndex.add(47);
-        // apiIndex.add(61);
-        // apiIndex.add(62);
-        // apiIndex.add(63);
-        // apiIndex.add(64);
-        // apiIndex.add(68);
-        // apiIndex.add(69);
-        // apiIndex.add(77);
-        // apiIndex.add(78);
-        // apiIndex.add(79);
-        // apiIndex.add(80);
-        // apiIndex.add(81);
-        // apiIndex.add(82);
-        // apiIndex.add(83);
-        // apiIndex.add(86);
-        // apiIndex.add(87);
-        // apiIndex.add(88);
-        // apiIndex.add(136);
-        // apiIndex.add(139);
-        // apiIndex.add(140);
-        // apiIndex.add(147);
-        for (Integer index : apiIndex) {
-            new EliaTest().syncDataViaApi(index);
+    /**
+     * 
+     * @param api
+     * @return
+     */
+    public EliaResponse requestAPI(String apiUrl) {
+        JSONObject object = JSONObject.parseObject(HttpUtil.get(apiUrl));
+        logger.debug("Get the data with API ID " + syncEliaMarketingTask.getApiId() + " from Elia " + object);
+        EliaResponse eliaResponse = new EliaResponse();
+        if (object.containsKey("error")) {
+            // Get error information from Elia
+            eliaResponse.setSuccess(false);
+            eliaResponse.setErrorCode(object.getString("errorcode"));
+            logger.error("Get wrong message from Elia", object);
+        } else {
+            eliaResponse.setSuccess(true);
+            eliaResponse.setDataCount(object.getInteger("total_count"));
+            eliaResponse.setData(object.getJSONArray("results"));
         }
-        System.out.println("总数据量:" + TOTAL);
+        return eliaResponse;
     }
+
+}
+
+@Data
+class EliaResponse {
+    private boolean success;
+    private Integer dataCount;
+    private JSONArray data;
+    private String errorCode;
+
 }
