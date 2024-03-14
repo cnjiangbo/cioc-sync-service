@@ -23,5 +23,6 @@ public class SyncEliaMarketingTask {
     // elia yuso
     private String source;
     private boolean enable;
+    private String collectionName;
 
 }
