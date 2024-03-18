@@ -107,6 +107,8 @@ public class MongoDataServiceImpl implements MongoDataService {
             result = mongoTemplate.getCollection(collectionName)
                     .insertMany(documents, options);
         } catch (Exception e) {
+            logger.error("There are some wrong with insert many data " + collectionName + " data: " + jsonObjects,
+                    e.getMessage());
             e.printStackTrace();
         }
 

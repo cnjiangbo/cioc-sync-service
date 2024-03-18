@@ -1,6 +1,6 @@
 package com.cioc.sync.jobs.threads;
 
-import java.time.LocalDate;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -21,7 +21,6 @@ import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 import com.cioc.sync.service.SyncRecordService;
 
-import cn.hutool.core.net.URLEncodeUtil;
 import cn.hutool.extra.spring.SpringUtil;
 import cn.hutool.http.HttpUtil;
 import lombok.Data;
@@ -32,12 +31,11 @@ public class EliaSyncThread extends Thread {
 
     private SyncEliaMarketingTask syncEliaMarketingTask;
 
-    private static boolean DAY_LIMIT = false;
-    private static Integer LIMITED_DAY = -1;
+    private static String LIMITED_DAY = null;
 
     String apiPageUrl = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
 
-    String apiDataUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/#METHOD#/records?order_by=#ORDER_BY# asc&limit=100&timezone=UTC&";
+    String apiDataUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/#METHOD#/records?order_by=#ORDER_BY# asc&limit=100&timezone=UTC";
 
     public EliaSyncThread(SyncEliaMarketingTask syncEliaMarketingTask) {
         this.syncEliaMarketingTask = syncEliaMarketingTask;
@@ -47,54 +45,48 @@ public class EliaSyncThread extends Thread {
     public void run() {
         try {
 
-            if (DAY_LIMIT) {
+            if (LIMITED_DAY != null) {
                 // 判断是不是新的一天，如果是则置为false
-                LocalDate currentDate = LocalDate.now();
-                int dayOfMonth = currentDate.getDayOfMonth();
-                if (LIMITED_DAY != dayOfMonth) {
-                    DAY_LIMIT = false;
-                    LIMITED_DAY = -1;
-                } else {
+                if (LIMITED_DAY.equals(getDateStr())) {
                     logger.debug("Trigger traffic limit");
                     endThisTask();
                     return;
+                } else {
+                    LIMITED_DAY = null;
                 }
-
             }
             MongoDataService mongoDataService = SpringUtil.getBean(MongoDataService.class);
 
             logger.info("Start new task >" + syncEliaMarketingTask);
-            String formattedNumber = String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId()));
-            String result = HttpUtil.get(apiPageUrl.replace("#INDEX#", formattedNumber));
-            Document doc = Jsoup.parse(result);
-            String collectionName = getCollectionName(doc.title());
+
+            String collectionName = getCollectionName();
             logger.debug("Get collection name from page title > " + collectionName);
-            apiDataUrl = apiDataUrl.replace("#METHOD#", "ods" + formattedNumber);
+            apiDataUrl = apiDataUrl.replace("#METHOD#",
+                    "ods" + String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId())));
             apiDataUrl = apiDataUrl.replace("#ORDER_BY#", syncEliaMarketingTask.getIndexField());
             mongoDataService.checkAndCreateCollection(collectionName, syncEliaMarketingTask.getIndexField());
+
             JSONObject lastData = mongoDataService.findLastInsertedDocument(collectionName);
 
             String where = "";
             if (lastData != null) {
                 // 根据最后一次数据的日期查询
-                where = "where=" + syncEliaMarketingTask.getIndexField() + ">'"
+                where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
                         + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
             }
             String requestURI = apiDataUrl + where;
             EliaResponse eliaResponse = requestAPI(requestURI);
-            // 一直更新最后时间，并且每次获取100个数据，直到total_count为0
             if (!eliaResponse.isSuccess()) {
                 // 请求API出错了
                 endThisTask();
-                // 如果是出发流量限制，那么加入内存 避免当日下次请求
+                // 如果是触发流量限制，那么加入内存 避免当日下次请求
                 if ("10005".equals(eliaResponse.getErrorCode())) {
-                    DAY_LIMIT = true;
-                    LocalDate currentDate = LocalDate.now();
-                    int dayOfMonth = currentDate.getDayOfMonth();
-                    LIMITED_DAY = dayOfMonth;
+                    LIMITED_DAY = getDateStr();
+                    logger.error("Trigger traffic limit first time", eliaResponse);
                 }
                 return;
             }
+
             Integer totalCount = eliaResponse.getDataCount();
 
             Integer totalCountSaveToDb = 0;
@@ -104,6 +96,9 @@ public class EliaSyncThread extends Thread {
                 List<JSONObject> jsonObjectList = JSON.parseObject(array.toJSONString(),
                         new TypeReference<List<JSONObject>>() {
                         });
+                // 在存储的时候判断当前数据是否和数据库重复了，如果重复了那么不继续请求。
+
+                // 因为是针对很多个API，所以需要针对每个API配置不同的查重字段
                 Integer successCount = mongoDataService.insertDocumentsIgnoreErrors(jsonObjectList, collectionName);
                 totalCountSaveToDb += successCount;
                 Integer errorCount = array.size() - successCount;
@@ -123,7 +118,6 @@ public class EliaSyncThread extends Thread {
                 where = "";
                 where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
                         + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
-                where = URLEncodeUtil.encode(where);
                 String url = apiDataUrl + where;
                 logger.debug("request url in while loop " + url);
 
@@ -139,7 +133,7 @@ public class EliaSyncThread extends Thread {
 
             logger.info("Complete data sync with API ID " + syncEliaMarketingTask.getApiId() + " success "
                     + totalCountSaveToDb + " error " + totalError);
-            logger.info("End task thread > " + syncEliaMarketingTask);
+
         } catch (Exception e) {
             logger.error("there are something wrong with elia API " + syncEliaMarketingTask.getApiId(), e.toString());
         }
@@ -147,6 +141,7 @@ public class EliaSyncThread extends Thread {
     }
 
     void endThisTask() {
+        logger.info("End task thread > " + syncEliaMarketingTask);
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());
     }
 
@@ -170,7 +165,11 @@ public class EliaSyncThread extends Thread {
         SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
     }
 
-    private String getCollectionName(String pageTitle) {
+    private String getCollectionName() {
+        String formattedNumber = String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId()));
+        String result = HttpUtil.get(apiPageUrl.replace("#INDEX#", formattedNumber));
+        Document doc = Jsoup.parse(result);
+        String pageTitle = doc.title();
         pageTitle = pageTitle.toLowerCase().trim();
         pageTitle = pageTitle.replace(" — elia open data portal", "");
         pageTitle = pageTitle.replace("(", "");
@@ -218,6 +217,14 @@ public class EliaSyncThread extends Thread {
             eliaResponse.setData(object.getJSONArray("results"));
         }
         return eliaResponse;
+    }
+
+    public String getDateStr() {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        return sdf.format(new Date());
+    }
+
+    public static void main(String[] args) {
     }
 
 }

@@ -40,21 +40,23 @@ public class ImportHistoricalDataServiceImpl implements ImportHistoricalDataServ
                 insertData.add(object);
                 if (i % 1000 == 0) {
                     mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
-                    logger.debug("insert 1000 data to " + collectionName);
+                    logger.debug("insert 1000 data to " + collectionName + ", the remaining data count is " + i);
                     insertData = new ArrayList<>();
                 }
             }
-            mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
         } else {
             for (int i = 0; i < array.size(); i++) {
                 JSONObject object = array.getJSONObject(i);
                 insertData.add(object);
                 if (i % 1000 == 0) {
                     mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
-                    logger.debug("insert 1000 data to " + collectionName);
+                    logger.debug("insert 1000 data to " + collectionName + ", the remaining data count is "
+                            + (array.size() - i));
                     insertData = new ArrayList<>();
                 }
             }
+        }
+        if (insertData.size() > 0) {
             mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
         }
         logger.info("Successfully inserted " + array.size() + " pieces of data into " + collectionName);
