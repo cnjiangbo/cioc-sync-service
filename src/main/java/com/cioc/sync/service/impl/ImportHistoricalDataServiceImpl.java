@@ -4,6 +4,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +22,7 @@ import com.cioc.sync.service.SyncEliaMarketingTaskService;
 
 import cn.hutool.core.io.file.FileReader;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.MD5;
 
 @Service
 public class ImportHistoricalDataServiceImpl implements ImportHistoricalDataService {
@@ -44,6 +47,7 @@ public class ImportHistoricalDataServiceImpl implements ImportHistoricalDataServ
         if (sort.equals("desc")) {
             for (int i = array.size() - 1; i >= 0; i--) {
                 JSONObject object = array.getJSONObject(i);
+                object.put("signature", generateMD5FromJSONObject(object));
                 insertData.add(object);
                 if (i % 1000 == 0) {
                     mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
@@ -54,6 +58,7 @@ public class ImportHistoricalDataServiceImpl implements ImportHistoricalDataServ
         } else {
             for (int i = 0; i < array.size(); i++) {
                 JSONObject object = array.getJSONObject(i);
+                object.put("signature", generateMD5FromJSONObject(object));
                 insertData.add(object);
                 if (i % 1000 == 0) {
                     mongoDataService.insertDocumentsIgnoreErrors(insertData, collectionName);
@@ -69,9 +74,24 @@ public class ImportHistoricalDataServiceImpl implements ImportHistoricalDataServ
         task.setSyncCount(1);
         task.setLastSyncTime(new Date());
         task.setLastSyncedDataCount(array.size());
-        task.setSyncCount(array.size());
+        task.setSyncedDataCount(array.size());
         syncEliaMarketingTaskService.createOrUpdateTask(task);
         logger.info("Successfully inserted " + array.size() + " pieces of data into " + collectionName);
     }
 
+    String generateMD5FromJSONObject(JSONObject jsonObject) {
+        // 使用 TreeMap 来按照键的首字母排序
+        Map<String, Object> sortedMap = new TreeMap<>(jsonObject);
+        // 构造键值对字符串
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Object> entry : sortedMap.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            sb.append(key).append("=").append(value).append("&");
+        }
+
+        // 去除末尾的 "&" 符号
+        String keyValueString = sb.toString().replaceAll("&$", "");
+        return MD5.create().digestHex(keyValueString);
+    }
 }
