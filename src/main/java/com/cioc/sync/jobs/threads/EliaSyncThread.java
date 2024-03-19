@@ -2,19 +2,14 @@ package com.cioc.sync.jobs.threads;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-import org.bson.json.JsonObject;
 import org.jsoup.Jsoup;
-import org.jsoup.internal.StringUtil;
 import org.jsoup.nodes.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +25,6 @@ import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 import com.cioc.sync.service.SyncRecordService;
 
-import cn.hutool.core.net.URLEncodeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.MD5;
 import cn.hutool.extra.spring.SpringUtil;
@@ -105,16 +99,8 @@ public class EliaSyncThread extends Thread {
                         new TypeReference<List<JSONObject>>() {
                         });
                 List<JSONObject> objectsToInsertIntoDatabase = new ArrayList<>();
-                // List<JSONObject> duplicateData = new ArrayList<>();
                 for (JSONObject object : jsonObjectList) {
                     String sign = generateMD5FromJSONObject(object);
-                    // Long count = mongoDataService.countFieldOccurrences(collectionName,
-                    // "signature", sign);
-                    // if (count > 0) {
-                    // // 存在意味着elia的bug
-                    // numberOfDuplicatesInNewData++;
-                    // duplicateData.add(object);
-                    // } else {
                     object.put("signature", sign);
                     objectsToInsertIntoDatabase.add(object);
                 }
@@ -136,22 +122,8 @@ public class EliaSyncThread extends Thread {
                     logger.error("error data is > " + array);
                 }
 
-                // if (numberOfDuplicatesInNewData > 0) {
-                // logger.error(
-                // collectionName + " data duplicates " + numberOfDuplicatesInNewData + " " +
-                // duplicateData);
-                // }
-
                 saveSyncRecord(successCount, errorCount, totalCount, collectionName);
 
-                // if (numberOfDuplicatesInNewData > 0) {
-                // // 数据已经重复，本次查询将不再继续
-                // logger.info("This query is stopped because of duplicate data. " +
-                // syncEliaMarketingTask.getApiId()
-                // + "\n" + duplicateData);
-                // break;
-                // }
-                // 获取最后一个数据，使用时间作为下一次请求的参数
                 lastData = array.getObject(array.size() - 1, JSONObject.class);
                 String url = getUrl(syncEliaMarketingTask,
                         lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", ""));

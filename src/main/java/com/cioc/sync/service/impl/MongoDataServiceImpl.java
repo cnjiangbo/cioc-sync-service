@@ -61,7 +61,9 @@ public class MongoDataServiceImpl implements MongoDataService {
             logger.info("Collection '" + collectionName + "' created successfully.");
             // create index field
             mongoTemplate.indexOps(collectionName)
-                    .ensureIndex(new Index().on(indexName, Direction.ASC).on("signature", Direction.ASC));
+                    .ensureIndex(new Index().on(indexName, Direction.ASC));
+            mongoTemplate.indexOps(collectionName)
+                    .ensureIndex(new Index().on("signature", Direction.ASC).unique());
             logger.info("Index '" + indexName + "' created successfully.");
         } else {
             logger.debug("Collection '" + collectionName + "' already exists.");

@@ -26,6 +26,7 @@ public class SyncEliaMarketingTaskServiceImpl implements SyncEliaMarketingTaskSe
     @SuppressWarnings("null")
     public SyncEliaMarketingTask getTaskById(String id) {
         return syncEliaMarketingTaskRepository.findById(id).orElse(null);
+
     }
 
     @SuppressWarnings("null")
@@ -37,6 +38,16 @@ public class SyncEliaMarketingTaskServiceImpl implements SyncEliaMarketingTaskSe
     @SuppressWarnings("null")
     public void deleteTaskById(String id) {
         syncEliaMarketingTaskRepository.deleteById(id);
+    }
+
+    @Override
+    public SyncEliaMarketingTask findByCollectionName(String collectionName) {
+        try {
+            return syncEliaMarketingTaskRepository.findByCollectionName(collectionName);
+        } catch (Exception exception) {
+            exception.printStackTrace();
+        }
+        return null;
     }
 
 }
