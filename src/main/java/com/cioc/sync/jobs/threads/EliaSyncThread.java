@@ -1,11 +1,20 @@
 package com.cioc.sync.jobs.threads;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
+import org.bson.json.JsonObject;
 import org.jsoup.Jsoup;
+import org.jsoup.internal.StringUtil;
 import org.jsoup.nodes.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +30,9 @@ import com.cioc.sync.service.MongoDataService;
 import com.cioc.sync.service.SyncEliaMarketingTaskService;
 import com.cioc.sync.service.SyncRecordService;
 
+import cn.hutool.core.net.URLEncodeUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.MD5;
 import cn.hutool.extra.spring.SpringUtil;
 import cn.hutool.http.HttpUtil;
 import lombok.Data;
@@ -34,8 +46,6 @@ public class EliaSyncThread extends Thread {
     private static String LIMITED_DAY = null;
 
     String apiPageUrl = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
-
-    String apiDataUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/#METHOD#/records?order_by=#ORDER_BY# asc&limit=100&timezone=UTC";
 
     public EliaSyncThread(SyncEliaMarketingTask syncEliaMarketingTask) {
         this.syncEliaMarketingTask = syncEliaMarketingTask;
@@ -61,20 +71,18 @@ public class EliaSyncThread extends Thread {
 
             String collectionName = getCollectionName();
             logger.debug("Get collection name from page title > " + collectionName);
-            apiDataUrl = apiDataUrl.replace("#METHOD#",
-                    "ods" + String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId())));
-            apiDataUrl = apiDataUrl.replace("#ORDER_BY#", syncEliaMarketingTask.getIndexField());
+
             mongoDataService.checkAndCreateCollection(collectionName, syncEliaMarketingTask.getIndexField());
 
             JSONObject lastData = mongoDataService.findLastInsertedDocument(collectionName);
 
-            String where = "";
+            String requestURI = getUrl(syncEliaMarketingTask, null);
+
             if (lastData != null) {
-                // 根据最后一次数据的日期查询
-                where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
-                        + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
+                requestURI = getUrl(syncEliaMarketingTask,
+                        lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", ""));
             }
-            String requestURI = apiDataUrl + where;
+
             EliaResponse eliaResponse = requestAPI(requestURI);
             if (!eliaResponse.isSuccess()) {
                 // 请求API出错了
@@ -96,10 +104,27 @@ public class EliaSyncThread extends Thread {
                 List<JSONObject> jsonObjectList = JSON.parseObject(array.toJSONString(),
                         new TypeReference<List<JSONObject>>() {
                         });
-                // 在存储的时候判断当前数据是否和数据库重复了，如果重复了那么不继续请求。
+                List<JSONObject> objectsToInsertIntoDatabase = new ArrayList<>();
+                // List<JSONObject> duplicateData = new ArrayList<>();
+                for (JSONObject object : jsonObjectList) {
+                    String sign = generateMD5FromJSONObject(object);
+                    // Long count = mongoDataService.countFieldOccurrences(collectionName,
+                    // "signature", sign);
+                    // if (count > 0) {
+                    // // 存在意味着elia的bug
+                    // numberOfDuplicatesInNewData++;
+                    // duplicateData.add(object);
+                    // } else {
+                    object.put("signature", sign);
+                    objectsToInsertIntoDatabase.add(object);
+                }
+                // }
+                Integer successCount = 0;
+                if (objectsToInsertIntoDatabase.size() > 0) {
+                    successCount = mongoDataService.insertDocumentsIgnoreErrors(objectsToInsertIntoDatabase,
+                            collectionName);
+                }
 
-                // 因为是针对很多个API，所以需要针对每个API配置不同的查重字段
-                Integer successCount = mongoDataService.insertDocumentsIgnoreErrors(jsonObjectList, collectionName);
                 totalCountSaveToDb += successCount;
                 Integer errorCount = array.size() - successCount;
                 totalError += errorCount;
@@ -111,17 +136,29 @@ public class EliaSyncThread extends Thread {
                     logger.error("error data is > " + array);
                 }
 
+                // if (numberOfDuplicatesInNewData > 0) {
+                // logger.error(
+                // collectionName + " data duplicates " + numberOfDuplicatesInNewData + " " +
+                // duplicateData);
+                // }
+
                 saveSyncRecord(successCount, errorCount, totalCount, collectionName);
 
+                // if (numberOfDuplicatesInNewData > 0) {
+                // // 数据已经重复，本次查询将不再继续
+                // logger.info("This query is stopped because of duplicate data. " +
+                // syncEliaMarketingTask.getApiId()
+                // + "\n" + duplicateData);
+                // break;
+                // }
                 // 获取最后一个数据，使用时间作为下一次请求的参数
                 lastData = array.getObject(array.size() - 1, JSONObject.class);
-                where = "";
-                where = "&where=" + syncEliaMarketingTask.getIndexField() + ">'"
-                        + lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", "") + "'";
-                String url = apiDataUrl + where;
+                String url = getUrl(syncEliaMarketingTask,
+                        lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", ""));
+                ;
                 logger.debug("request url in while loop " + url);
 
-                eliaResponse = requestAPI(requestURI);
+                eliaResponse = requestAPI(url);
                 if (!eliaResponse.isSuccess()) {
                     break;
                 }
@@ -135,7 +172,8 @@ public class EliaSyncThread extends Thread {
                     + totalCountSaveToDb + " error " + totalError);
 
         } catch (Exception e) {
-            logger.error("there are something wrong with elia API " + syncEliaMarketingTask.getApiId(), e.toString());
+            logger.error("there are something wrong with elia API " + syncEliaMarketingTask.getApiId(),
+                    e);
         }
         endThisTask();
     }
@@ -163,6 +201,22 @@ public class EliaSyncThread extends Thread {
         syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + successCount);
         syncEliaMarketingTask.setCollectionName(collectionName);
         SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
+    }
+
+    String generateMD5FromJSONObject(JSONObject jsonObject) {
+        // 使用 TreeMap 来按照键的首字母排序
+        Map<String, Object> sortedMap = new TreeMap<>(jsonObject);
+        // 构造键值对字符串
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Object> entry : sortedMap.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            sb.append(key).append("=").append(value).append("&");
+        }
+
+        // 去除末尾的 "&" 符号
+        String keyValueString = sb.toString().replaceAll("&$", "");
+        return MD5.create().digestHex(keyValueString);
     }
 
     private String getCollectionName() {
@@ -203,18 +257,25 @@ public class EliaSyncThread extends Thread {
      * @return
      */
     public EliaResponse requestAPI(String apiUrl) {
-        JSONObject object = JSONObject.parseObject(HttpUtil.get(apiUrl));
-        logger.debug("Get the data with API ID " + syncEliaMarketingTask.getApiId() + " from Elia " + object);
         EliaResponse eliaResponse = new EliaResponse();
-        if (object.containsKey("error")) {
-            // Get error information from Elia
+        try {
+            JSONObject object = JSONObject.parseObject(HttpUtil.get(apiUrl));
+            logger.debug("Get the data with API ID " + apiUrl + " " + syncEliaMarketingTask.getApiId() + " from Elia "
+                    + object);
+
+            if (object.containsKey("error")) {
+                // Get error information from Elia
+                eliaResponse.setSuccess(false);
+                eliaResponse.setErrorCode(object.getString("errorcode"));
+                logger.error("Get wrong message from Elia", object);
+            } else {
+                eliaResponse.setSuccess(true);
+                eliaResponse.setDataCount(object.getInteger("total_count"));
+                eliaResponse.setData(object.getJSONArray("results"));
+            }
+        } catch (Exception exception) {
             eliaResponse.setSuccess(false);
-            eliaResponse.setErrorCode(object.getString("errorcode"));
-            logger.error("Get wrong message from Elia", object);
-        } else {
-            eliaResponse.setSuccess(true);
-            eliaResponse.setDataCount(object.getInteger("total_count"));
-            eliaResponse.setData(object.getJSONArray("results"));
+            logger.error("request " + apiUrl + " error", exception);
         }
         return eliaResponse;
     }
@@ -224,7 +285,57 @@ public class EliaSyncThread extends Thread {
         return sdf.format(new Date());
     }
 
+    String getUrl(SyncEliaMarketingTask task, String lastDateTime) {
+        String url = null;
+        try {
+            String baseUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods"
+                    + String.format("%03d", Integer.parseInt(syncEliaMarketingTask.getApiId())) + "/records";
+
+            String orderBy = task.getIndexField() + " asc";
+            int limit = 100;
+            String timezone = "UTC";
+
+            url = baseUrl + "?order_by=" + orderBy +
+                    "&limit=" + limit +
+                    "&timezone=" + timezone;
+            if (!StrUtil.isBlank(lastDateTime)) {
+                String whereClause = task.getIndexField() + ">'" + lastDateTime + "'";
+                String encodedWhereClause = URLEncoder.encode(whereClause, "UTF-8");
+                url = url + "&where=" + encodedWhereClause;
+            }
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        return url;
+
+    }
+
     public static void main(String[] args) {
+        EliaSyncThread thread = new EliaSyncThread(null);
+        String baseUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods001/records";
+        String whereClause = "datetime>'2015-01-01T23:45:00'";
+        String orderBy = "datetime asc";
+        int limit = 100;
+        String timezone = "UTC";
+
+        try {
+            // 对 where 子句进行 URL 编码
+            String encodedWhereClause = URLEncoder.encode(whereClause, "UTF-8");
+
+            // 构建完整的 URL
+            String url = baseUrl + "?order_by=" + orderBy +
+                    "&limit=" + limit +
+                    "&timezone=" + timezone +
+                    "&where=" + encodedWhereClause;
+
+            // 输出 URL
+            System.out.println("Encoded URL: " + url.equals(
+                    "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods001/records?order_by=datetime asc&limit=100&timezone=UTC&where=datetime%3E%272015-01-01T23%3A45%3A00%27"));
+            System.out.println(HttpUtil.get(url));
+        } catch (UnsupportedEncodingException e) {
+            // 处理不支持的编码异常
+            e.printStackTrace();
+        }
     }
 
 }

@@ -17,4 +17,5 @@ public class SyncRecord {
     private Integer errorCount;
     private Integer successCount;
     private Integer requestDataCount;
+    private Integer numberOfDuplicatesInNewData;
 }

@@ -1,6 +1,7 @@
 package com.cioc.sync.service.impl;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Direction;
 import org.springframework.stereotype.Service;
 
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.InsertManyOptions;
 import com.mongodb.client.result.InsertManyResult;
 
@@ -58,7 +60,8 @@ public class MongoDataServiceImpl implements MongoDataService {
             mongoTemplate.createCollection(collectionName);
             logger.info("Collection '" + collectionName + "' created successfully.");
             // create index field
-            mongoTemplate.indexOps(collectionName).ensureIndex(new Index().on(indexName, Direction.ASC));
+            mongoTemplate.indexOps(collectionName)
+                    .ensureIndex(new Index().on(indexName, Direction.ASC).on("signature", Direction.ASC));
             logger.info("Index '" + indexName + "' created successfully.");
         } else {
             logger.debug("Collection '" + collectionName + "' already exists.");
@@ -112,6 +115,42 @@ public class MongoDataServiceImpl implements MongoDataService {
         }
 
         return result == null ? 0 : result.getInsertedIds().size();
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public boolean checkColumnValuesExist(String collectionName, Map<String, Object> columnValues) {
+        if (StrUtil.isBlank(collectionName)) {
+            throw new RuntimeException("collectionName can not be null");
+        }
+        if (columnValues == null || columnValues.size() == 0) {
+            throw new RuntimeException("columnValues can not be null");
+        }
+        Document query = new Document();
+        for (Map.Entry<String, Object> entry : columnValues.entrySet()) {
+            query.append(entry.getKey(), entry.getValue());
+        }
+
+        MongoCursor<Document> cursor = mongoTemplate.getCollection(collectionName).find(query).iterator();
+        try {
+            return cursor.hasNext();
+        } finally {
+            cursor.close();
+        }
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public Long countFieldOccurrences(String collectionName, String fieldName, String valueToMatch) {
+        if (StrUtil.isBlank(valueToMatch) || StrUtil.isBlank(valueToMatch)) {
+            throw new RuntimeException("valueToMatch and valueToMatch can not be null");
+        }
+        if (StrUtil.isBlank(collectionName)) {
+            throw new RuntimeException("collectionName can not be null");
+        }
+
+        Document query = new Document(fieldName, valueToMatch);
+        return mongoTemplate.getCollection(collectionName).countDocuments(query);
     }
 
 }

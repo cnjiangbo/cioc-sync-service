@@ -22,7 +22,7 @@ public class SyncEliaMarketingData {
 
     public static List<String> RUNNING_TASK = new ArrayList<>();
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRate = 1000 * 5)
     public void initSyncTask() {
         List<SyncEliaMarketingTask> syncEliaMarketingTasks = syncEliaMarketingTaskService.getAllTasks();
         for (SyncEliaMarketingTask syncEliaMarketingTask : syncEliaMarketingTasks) {
