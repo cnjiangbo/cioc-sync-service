@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Direction;
@@ -100,23 +101,29 @@ public class MongoDataServiceImpl implements MongoDataService {
     @SuppressWarnings("null")
     @Override
     public Integer insertDocumentsIgnoreErrors(List<JSONObject> jsonObjects, String collectionName) {
-        // 方法有问题，当出现重复数据的时候，整个list插入失败，临时弃用
+
+        List<String> signatures = jsonObjects.stream()
+                .map(jsonObject -> jsonObject.getString("signature"))
+                .collect(Collectors.toList());
+        Query query = new Query();
+        query.addCriteria(Criteria.where("signature").in(signatures));
+        long alreadyInDataBase = mongoTemplate.count(query, collectionName);
+
         List<Document> documents = jsonObjects.stream()
                 .map(jsonObject -> jsonObject.toJSONString())
                 .map(jsonString -> Document.parse((String) jsonString))
                 .collect(Collectors.toList());
         InsertManyOptions options = new InsertManyOptions().ordered(false);
-        InsertManyResult result = null;
         try {
-            result = mongoTemplate.getCollection(collectionName)
+            mongoTemplate.getCollection(collectionName)
                     .insertMany(documents, options);
         } catch (Exception e) {
-            logger.error("There are some wrong with insert many data " + collectionName + " data: " + jsonObjects,
-                    e.getMessage());
-            e.printStackTrace();
+            // logger.error("There are some wrong with insert many data " + collectionName +
+            // " data: " + jsonObjects,
+            // e.getMessage());
+            // e.printStackTrace();
         }
-
-        return result == null ? 0 : result.getInsertedIds().size();
+        return jsonObjects.size() - Integer.valueOf(alreadyInDataBase + "");
     }
 
     @SuppressWarnings("null")
