@@ -114,16 +114,17 @@ public class EliaSyncThread extends Thread {
                 totalCountSaveToDb += successCount;
                 Integer errorCount = array.size() - successCount;
                 totalError += errorCount;
+
+                saveSyncRecord(successCount, errorCount, totalCount, collectionName);
                 if (errorCount > 0) {
                     logger.error(
                             errorCount + " errors occurred when inserting data with API ID "
                                     + syncEliaMarketingTask.getApiId()
                                     + " of Elia ");
                     logger.error("error data is > " + array);
+                    endThisTask();
+                    return;
                 }
-
-                saveSyncRecord(successCount, errorCount, totalCount, collectionName);
-
                 lastData = array.getObject(array.size() - 1, JSONObject.class);
                 String url = getUrl(syncEliaMarketingTask,
                         lastData.getString(syncEliaMarketingTask.getIndexField()).replace("+00:00", ""));
@@ -204,7 +205,7 @@ public class EliaSyncThread extends Thread {
         return pageTitle;
     }
 
-    public void getAllEliaApi(Integer index) {
+    public void getAllEliaApi() {
         String url = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
         List<String> apis = new ArrayList<>();
         for (int i = 1; i < 999; i++) {
@@ -271,7 +272,7 @@ public class EliaSyncThread extends Thread {
                     "&limit=" + limit +
                     "&timezone=" + timezone;
             if (!StrUtil.isBlank(lastDateTime)) {
-                String whereClause = task.getIndexField() + ">'" + lastDateTime + "'";
+                String whereClause = task.getIndexField() + ">='" + lastDateTime + "'";
                 String encodedWhereClause = URLEncoder.encode(whereClause, "UTF-8");
                 url = url + "&where=" + encodedWhereClause;
             }
@@ -284,30 +285,7 @@ public class EliaSyncThread extends Thread {
 
     public static void main(String[] args) {
         EliaSyncThread thread = new EliaSyncThread(null);
-        String baseUrl = "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods001/records";
-        String whereClause = "datetime>'2015-01-01T23:45:00'";
-        String orderBy = "datetime asc";
-        int limit = 100;
-        String timezone = "UTC";
-
-        try {
-            // 对 where 子句进行 URL 编码
-            String encodedWhereClause = URLEncoder.encode(whereClause, "UTF-8");
-
-            // 构建完整的 URL
-            String url = baseUrl + "?order_by=" + orderBy +
-                    "&limit=" + limit +
-                    "&timezone=" + timezone +
-                    "&where=" + encodedWhereClause;
-
-            // 输出 URL
-            System.out.println("Encoded URL: " + url.equals(
-                    "https://opendata.elia.be/api/explore/v2.1/catalog/datasets/ods001/records?order_by=datetime asc&limit=100&timezone=UTC&where=datetime%3E%272015-01-01T23%3A45%3A00%27"));
-            System.out.println(HttpUtil.get(url));
-        } catch (UnsupportedEncodingException e) {
-            // 处理不支持的编码异常
-            e.printStackTrace();
-        }
+        thread.getAllEliaApi();
     }
 
 }

@@ -22,7 +22,7 @@ public class SyncNordPoolMarketingData {
     @Autowired
     DaPriceService daPriceService;
 
-    @Scheduled(cron = "0 40 15 * * ?")
+    @Scheduled(cron = "0 40 14 * * ?")
     public void syncDaPrice() {
         String area = "BE";
         // 当前时间14点后发布
