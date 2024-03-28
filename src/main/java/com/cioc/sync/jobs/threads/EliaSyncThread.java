@@ -104,7 +104,6 @@ public class EliaSyncThread extends Thread {
                     object.put("signature", sign);
                     objectsToInsertIntoDatabase.add(object);
                 }
-                // }
                 Integer successCount = 0;
                 if (objectsToInsertIntoDatabase.size() > 0) {
                     successCount = mongoDataService.insertDocumentsIgnoreErrors(objectsToInsertIntoDatabase,
@@ -116,7 +115,7 @@ public class EliaSyncThread extends Thread {
                 totalError += errorCount;
 
                 saveSyncRecord(successCount, errorCount, totalCount, collectionName);
-                if (errorCount > 0) {
+                if (errorCount > 0 && successCount == 0) {// 彻底无法取到新的数据
                     logger.error(
                             errorCount + " errors occurred when inserting data with API ID "
                                     + syncEliaMarketingTask.getApiId()

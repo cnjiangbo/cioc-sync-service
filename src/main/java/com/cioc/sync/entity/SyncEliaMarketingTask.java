@@ -24,5 +24,6 @@ public class SyncEliaMarketingTask {
     private String source;
     private boolean enable;
     private String collectionName;
+    private Integer taskGroup;
 
 }
