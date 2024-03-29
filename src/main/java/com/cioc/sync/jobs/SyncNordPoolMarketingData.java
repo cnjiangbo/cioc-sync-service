@@ -5,6 +5,7 @@ import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -21,9 +22,14 @@ public class SyncNordPoolMarketingData {
     private static final Logger logger = LoggerFactory.getLogger(SyncNordPoolMarketingData.class);
     @Autowired
     DaPriceService daPriceService;
+    @Value("${e2x.config.sync.sync_da_price_enable}")
+    private Boolean syncDaPriceEnable;
 
     @Scheduled(cron = "0 40 14 * * ?")
     public void syncDaPrice() {
+        if (!syncDaPriceEnable) {
+            return;
+        }
         String area = "BE";
         // 当前时间14点后发布
         String tomorrowStr = DateUtil.format(DateUtil.offsetDay(new Date(), 1), "yyyy-MM-dd");

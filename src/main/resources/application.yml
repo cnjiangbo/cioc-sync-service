@@ -17,3 +17,10 @@ logging:
     root: INFO
     com:
       cioc: DEBUG
+
+e2x:
+  config:
+    sync:
+      taskGroup: 1
+      sync_interval_seconds: 120
+      sync_da_price_enable: true
