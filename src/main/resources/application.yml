@@ -9,7 +9,6 @@ spring:
       username: cioc-elia
       password: aBcD1234eF5678gH
 
-
 logging:
   file:
     path: ./log
@@ -21,6 +20,7 @@ logging:
 e2x:
   config:
     sync:
-      taskGroup: 1
+      taskGroup: 3
       sync_interval_seconds: 120
       sync_da_price_enable: true
+    api_address: http://127.0.0.1:8088

@@ -1,10 +1,12 @@
 package com.cioc.sync.jobs.threads;
 
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -19,15 +21,12 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
-import com.cioc.sync.entity.SyncRecord;
 import com.cioc.sync.jobs.SyncEliaMarketingData;
-import com.cioc.sync.service.MongoDataService;
-import com.cioc.sync.service.SyncEliaMarketingTaskService;
-import com.cioc.sync.service.SyncRecordService;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.MD5;
-import cn.hutool.extra.spring.SpringUtil;
+import cn.hutool.http.Header;
+import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpUtil;
 import lombok.Data;
 
@@ -39,9 +38,12 @@ public class EliaSyncThread extends Thread {
 
     private static String LIMITED_DAY = null;
 
+    private String apiAddress;
+
     String apiPageUrl = "https://opendata.elia.be/explore/dataset/ods#INDEX#/information/";
 
-    public EliaSyncThread(SyncEliaMarketingTask syncEliaMarketingTask) {
+    public EliaSyncThread(SyncEliaMarketingTask syncEliaMarketingTask, String apiAddress) {
+        this.apiAddress = apiAddress;
         this.syncEliaMarketingTask = syncEliaMarketingTask;
     }
 
@@ -59,16 +61,15 @@ public class EliaSyncThread extends Thread {
                     LIMITED_DAY = null;
                 }
             }
-            MongoDataService mongoDataService = SpringUtil.getBean(MongoDataService.class);
 
             logger.info("Start new task >" + syncEliaMarketingTask);
 
             String collectionName = getCollectionName();
             logger.debug("Get collection name from page title > " + collectionName);
 
-            mongoDataService.checkAndCreateCollection(collectionName, syncEliaMarketingTask.getIndexField());
+            checkAndCreateCollection(collectionName, syncEliaMarketingTask.getIndexField());
 
-            JSONObject lastData = mongoDataService.findLastInsertedDocument(collectionName);
+            JSONObject lastData = findLastInsertedDocument(collectionName);
 
             String requestURI = getUrl(syncEliaMarketingTask, null);
 
@@ -106,7 +107,7 @@ public class EliaSyncThread extends Thread {
                 }
                 Integer successCount = 0;
                 if (objectsToInsertIntoDatabase.size() > 0) {
-                    successCount = mongoDataService.insertDocumentsIgnoreErrors(objectsToInsertIntoDatabase,
+                    successCount = insertDocumentsIgnoreErrors(objectsToInsertIntoDatabase,
                             collectionName);
                 }
 
@@ -114,7 +115,6 @@ public class EliaSyncThread extends Thread {
                 Integer errorCount = array.size() - successCount;
                 totalError += errorCount;
 
-                saveSyncRecord(successCount, errorCount, totalCount, collectionName);
                 if (errorCount > 0 && successCount == 0) {// 彻底无法取到新的数据
                     logger.error(
                             errorCount + " errors occurred when inserting data with API ID "
@@ -153,26 +153,6 @@ public class EliaSyncThread extends Thread {
     void endThisTask() {
         logger.info("End task thread > " + syncEliaMarketingTask);
         SyncEliaMarketingData.RUNNING_TASK.remove(syncEliaMarketingTask.getId());
-    }
-
-    void saveSyncRecord(Integer successCount, Integer errorCount, Integer totalCount, String collectionName) {
-        SyncRecordService syncRecordService = SpringUtil.getBean(SyncRecordService.class);
-        // 保存同步记录
-        SyncRecord syncRecord = new SyncRecord();
-        syncRecord.setSuccessCount(successCount);
-        syncRecord.setErrorCount(errorCount);
-        syncRecord.setApiId(syncEliaMarketingTask.getApiId());
-        syncRecord.setSyncTime(new Date());
-        syncRecord.setRequestDataCount(totalCount);
-        syncRecordService.createOrUpdateTask(syncRecord);
-
-        // 更新总记录
-        syncEliaMarketingTask.setLastSyncTime(new Date());
-        syncEliaMarketingTask.setLastSyncedDataCount(successCount);
-        syncEliaMarketingTask.setSyncCount(syncEliaMarketingTask.getSyncCount() + 1);
-        syncEliaMarketingTask.setSyncedDataCount(syncEliaMarketingTask.getSyncedDataCount() + successCount);
-        syncEliaMarketingTask.setCollectionName(collectionName);
-        SpringUtil.getBean(SyncEliaMarketingTaskService.class).createOrUpdateTask(syncEliaMarketingTask);
     }
 
     String generateMD5FromJSONObject(JSONObject jsonObject) {
@@ -283,8 +263,32 @@ public class EliaSyncThread extends Thread {
     }
 
     public static void main(String[] args) {
-        EliaSyncThread thread = new EliaSyncThread(null);
+        EliaSyncThread thread = new EliaSyncThread(null, null);
         thread.getAllEliaApi();
+    }
+
+    public void checkAndCreateCollection(String collectionName, String fieldString) {
+        String url = apiAddress + "/syncEliaMarketingTaskController/checkAndCreateCollection?collectionName="
+                + collectionName + "&fieldString="
+                + fieldString;
+        HttpUtil.get(url);
+    }
+
+    public JSONObject findLastInsertedDocument(String collectionName) {
+        String url = apiAddress + "/syncEliaMarketingTaskController/findLastInsertedDocument?collectionName="
+                + collectionName;
+        return JSONObject.parseObject(HttpUtil.get(url));
+    }
+
+    public Integer insertDocumentsIgnoreErrors(List<JSONObject> daList, String collectionName) {
+        String url = apiAddress + "/syncEliaMarketingTaskController/saveEliaData?collectionName="
+                + collectionName;
+
+        String result = HttpRequest.post(url)
+                .body(JSON.toJSONString(daList))
+                .execute().body();
+        return Integer.valueOf(result);
+
     }
 
 }

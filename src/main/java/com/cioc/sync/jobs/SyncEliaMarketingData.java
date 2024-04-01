@@ -6,23 +6,22 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.scheduling.support.PeriodicTrigger;
 import org.springframework.stereotype.Component;
 
+import com.alibaba.fastjson.JSON;
 import com.cioc.sync.entity.SyncEliaMarketingTask;
 import com.cioc.sync.jobs.threads.EliaSyncThread;
-import com.cioc.sync.service.SyncEliaMarketingTaskService;
+
+import cn.hutool.http.HttpUtil;
 
 @Component
 public class SyncEliaMarketingData implements SchedulingConfigurer {
 
     private static final Logger logger = LoggerFactory.getLogger(SyncEliaMarketingData.class);
-    @Autowired
-    SyncEliaMarketingTaskService syncEliaMarketingTaskService;
 
     public static List<String> RUNNING_TASK = new ArrayList<>();
 
@@ -31,6 +30,9 @@ public class SyncEliaMarketingData implements SchedulingConfigurer {
 
     @Value("${e2x.config.sync.sync_interval_seconds}")
     private long syncIntervalSeconds;
+
+    @Value("${e2x.config.api_address}")
+    private String apiAddress;
 
     @SuppressWarnings({ "deprecation", "null" })
     @Override
@@ -41,7 +43,7 @@ public class SyncEliaMarketingData implements SchedulingConfigurer {
     }
 
     public void initSyncTask() {
-        List<SyncEliaMarketingTask> syncEliaMarketingTasks = syncEliaMarketingTaskService.getAllTasks();
+        List<SyncEliaMarketingTask> syncEliaMarketingTasks = getAllTasks();
         for (SyncEliaMarketingTask syncEliaMarketingTask : syncEliaMarketingTasks) {
             if (!syncEliaMarketingTask.isEnable()) {
                 continue;
@@ -56,10 +58,17 @@ public class SyncEliaMarketingData implements SchedulingConfigurer {
                 continue;
             }
             if (syncEliaMarketingTask.getSource().equals("elia")) {
-                new EliaSyncThread(syncEliaMarketingTask).start();
+                new EliaSyncThread(syncEliaMarketingTask, apiAddress).start();
                 RUNNING_TASK.add(syncEliaMarketingTask.getId());
             }
         }
+    }
+
+    public List<SyncEliaMarketingTask> getAllTasks() {
+        String url = apiAddress + "/syncEliaMarketingTaskController/all";
+        String result = HttpUtil.get(url);
+        List<SyncEliaMarketingTask> tasks = JSON.parseArray(result, SyncEliaMarketingTask.class);
+        return tasks;
     }
 
 }
